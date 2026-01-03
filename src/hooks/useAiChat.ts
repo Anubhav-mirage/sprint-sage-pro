@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { UserStory, SprintMetrics } from '@/data/mockData';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
   id: string;
@@ -18,8 +19,6 @@ interface UseAiChatProps {
   stories: UserStory[];
   metrics: SprintMetrics;
 }
-
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sprint-copilot`;
 
 export function useAiChat({ stories, metrics }: UseAiChatProps) {
   const [messages, setMessages] = useState<Message[]>([
@@ -89,11 +88,50 @@ export function useAiChat({ stories, metrics }: UseAiChatProps) {
     };
 
     try {
-      const resp = await fetch(CHAT_URL, {
+      // Use Supabase client's functions.invoke which handles auth properly
+      const { data, error } = await supabase.functions.invoke('sprint-copilot', {
+        body: {
+          message: content,
+          stories: stories.map(s => ({
+            id: s.id,
+            title: s.title,
+            description: s.description,
+            storyPoints: s.storyPoints,
+            priority: s.priority,
+            riskLevel: s.riskLevel,
+            isVague: s.isVague,
+          })),
+          metrics: {
+            velocity: metrics.velocity,
+            capacity: metrics.capacity,
+            committedPoints: metrics.committedPoints,
+            riskScore: metrics.riskScore,
+          },
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Edge function error');
+      }
+
+      // For non-streaming response handling
+      if (data && typeof data === 'object' && !data.getReader) {
+        // If we got a direct JSON response (error case)
+        if (data.error) {
+          throw new Error(data.error);
+        }
+      }
+
+      // For streaming, we need to use fetch directly with proper auth
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sprint-copilot`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          'Authorization': `Bearer ${accessToken || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({
           message: content,
@@ -114,6 +152,11 @@ export function useAiChat({ stories, metrics }: UseAiChatProps) {
           },
         }),
       });
+
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${resp.status}`);
+      }
 
       if (!resp.ok) {
         const errorData = await resp.json().catch(() => ({}));

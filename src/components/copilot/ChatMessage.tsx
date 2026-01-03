@@ -3,6 +3,7 @@ import { useSprint } from '@/context/SprintContext';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { UserStory } from '@/data/mockData';
+import DOMPurify from 'dompurify';
 
 interface Message {
   id: string;
@@ -31,6 +32,16 @@ export function ChatMessage({ message }: ChatMessageProps) {
     }
   };
 
+  // Configure DOMPurify to allow only safe tags
+  const sanitizeConfig = {
+    ALLOWED_TAGS: ['strong', 'em', 'br', 'span'],
+    ALLOWED_ATTR: []
+  };
+
+  const sanitize = (html: string): string => {
+    return DOMPurify.sanitize(html, sanitizeConfig);
+  };
+
   // Parse markdown-like formatting
   const formatContent = (content: string) => {
     return content.split('\n').map((line, idx) => {
@@ -39,11 +50,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
       
       // Handle bullet points
       if (line.startsWith('•') || line.startsWith('-')) {
+        const sanitizedContent = sanitize(line.replace(/^[•-]\s*/, ''));
         return (
           <li 
             key={idx} 
             className="ml-4 text-sm"
-            dangerouslySetInnerHTML={{ __html: line.replace(/^[•-]\s*/, '') }}
+            dangerouslySetInnerHTML={{ __html: sanitizedContent }}
           />
         );
       }
@@ -51,21 +63,23 @@ export function ChatMessage({ message }: ChatMessageProps) {
       // Handle numbered lists
       const numberMatch = line.match(/^(\d+)\.\s/);
       if (numberMatch) {
+        const sanitizedContent = sanitize(line.replace(/^\d+\.\s*/, ''));
         return (
           <div key={idx} className="flex gap-2 text-sm">
             <span className="text-primary font-medium">{numberMatch[1]}.</span>
-            <span dangerouslySetInnerHTML={{ __html: line.replace(/^\d+\.\s*/, '') }} />
+            <span dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
           </div>
         );
       }
 
       // Regular line
       if (line.trim() === '') return <br key={idx} />;
+      const sanitizedLine = sanitize(line);
       return (
         <p 
           key={idx} 
           className="text-sm"
-          dangerouslySetInnerHTML={{ __html: line }}
+          dangerouslySetInnerHTML={{ __html: sanitizedLine }}
         />
       );
     });
