@@ -1,13 +1,42 @@
+import { useState } from 'react';
 import { Plus, Filter, Search, Sparkles } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { useSprint } from '@/context/SprintContext';
-import { StoryCard } from './StoryCard';
+import { SortableStoryCard } from './SortableStoryCard';
+import { StoryDetailDrawer } from './StoryDetailDrawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useState } from 'react';
+import { UserStory } from '@/data/mockData';
 
 export function BacklogPanel() {
-  const { stories } = useSprint();
+  const { stories, reorderStories } = useSprint();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStory, setSelectedStory] = useState<UserStory | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const filteredStories = stories.filter(story =>
     story.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -16,6 +45,19 @@ export function BacklogPanel() {
 
   const totalPoints = stories.reduce((sum, s) => sum + s.storyPoints, 0);
   const vagueCount = stories.filter(s => s.isVague).length;
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      reorderStories(active.id as string, over.id as string);
+    }
+  };
+
+  const handleStoryClick = (story: UserStory) => {
+    setSelectedStory(story);
+    setDrawerOpen(true);
+  };
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -66,17 +108,31 @@ export function BacklogPanel() {
         )}
       </div>
 
-      {/* Stories List */}
+      {/* Stories List with Drag and Drop */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
-        {filteredStories.map((story, index) => (
-          <div 
-            key={story.id}
-            className="animate-slide-up"
-            style={{ animationDelay: `${index * 50}ms` }}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={filteredStories.map(s => s.id)}
+            strategy={verticalListSortingStrategy}
           >
-            <StoryCard story={story} />
-          </div>
-        ))}
+            {filteredStories.map((story, index) => (
+              <div 
+                key={story.id}
+                className="animate-slide-up"
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <SortableStoryCard 
+                  story={story} 
+                  onClick={() => handleStoryClick(story)}
+                />
+              </div>
+            ))}
+          </SortableContext>
+        </DndContext>
 
         {filteredStories.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -85,6 +141,13 @@ export function BacklogPanel() {
           </div>
         )}
       </div>
+
+      {/* Story Detail Drawer */}
+      <StoryDetailDrawer
+        story={selectedStory}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+      />
     </div>
   );
 }
